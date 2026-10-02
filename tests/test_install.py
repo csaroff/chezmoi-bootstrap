@@ -48,7 +48,8 @@ configure_dotfiles
 [[ $(<"$KEY") == test-private-key ]]
 while IFS= read -r line; do printf '%s\n' "$line"; done < "$HOME/events"
 ''')
-        self.assertIn("auth login --hostname github.com --git-protocol ssh --skip-ssh-key --web", output)
+        self.assertIn("auth login --hostname github.com --git-protocol https --web", output)
+        self.assertIn("config set git_protocol ssh --host github.com", output)
         self.assertIn("ssh-key add", output)
         self.assertIn("core.sshCommand ssh -i", output)
         self.assertIn("remote set-url origin git@github.com:alice/config.git", output)

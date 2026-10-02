@@ -96,8 +96,10 @@ github_login() {
     say 'Authorize GitHub in your browser. On a server, open the displayed URL on another device.'
     say 'GitHub CLI authorization is account-wide, not limited to the dotfiles repository.'
     say 'Without an OS keychain, gh may store its token in a plaintext file.'
-    # Handle key reuse explicitly below; only the public key is uploaded.
-    gh auth login --hostname github.com --git-protocol ssh --skip-ssh-key --web --scopes admin:public_key
+    # HTTPS login avoids gh's automatic SSH-key setup on older CLIs that lack
+    # --skip-ssh-key. Restore the SSH default; key registration happens below.
+    gh auth login --hostname github.com --git-protocol https --web --scopes admin:public_key
+    gh config set git_protocol ssh --host github.com
   fi
   local account
   account=$(gh api --hostname github.com user --jq .login)
