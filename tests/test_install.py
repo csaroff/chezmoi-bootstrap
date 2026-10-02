@@ -54,6 +54,35 @@ while IFS= read -r line; do printf '%s\n' "$line"; done < "$HOME/events"
         self.assertIn("remote set-url origin git@github.com:alice/config.git", output)
         self.assertLess(output.index("chezmoi diff"), output.index("chezmoi apply"))
 
+    def test_ubuntu_packaged_gh_can_login_without_unsupported_skip_flag(self):
+        # Ubuntu 24.04 ships gh 2.45. A fresh-machine install must reach browser
+        # authorization without requiring a newer CLI or letting gh choose keys.
+        output = self.run_shell(r'''
+confirm() { return 0; }
+gh() {
+  case "$*" in
+    'auth status '*) return 1 ;;
+    'auth login '*)
+      for arg in "$@"; do
+        if [[ $arg == --skip-ssh-key ]]; then
+          echo 'unknown flag: --skip-ssh-key' >&2
+          return 1
+        fi
+      done
+      [[ " $* " == *' --git-protocol https '* ]] || return 98
+      echo LOGIN_OK
+      ;;
+    'config set git_protocol ssh --host github.com') echo SSH_DEFAULT ;;
+    'api --hostname github.com user --jq .login') echo alice ;;
+    'api --hostname github.com user/keys '*) return 0 ;;
+    *) return 99 ;;
+  esac
+}
+github_login
+''')
+        self.assertIn('LOGIN_OK', output)
+        self.assertIn('SSH_DEFAULT', output)
+
     def test_public_one_liner_invokes_main_without_a_script_filename(self):
         # The documented curl -> bash -c entry point must run, not require a file
         # on disk. Substitute only main's body to avoid changing this computer.
