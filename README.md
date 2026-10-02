@@ -1,4 +1,4 @@
-# Developer bootstrap
+# Chezmoi bootstrap
 
 One command on a new machine: install prerequisites, authorize GitHub, register a
 machine-specific SSH key, and initialize your private chezmoi dotfiles over SSH.
@@ -9,7 +9,7 @@ No existing laptop, private key, or checkout required.
 As your normal user (not root), with an interactive terminal and `curl` installed:
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/csaroff/dev-bootstrap/main/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/csaroff/chezmoi-bootstrap/main/install.sh)"
 ```
 
 This executes code from this repository. Review `install.sh` first if desired;
