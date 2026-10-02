@@ -2,8 +2,9 @@
 # Public entry point. Secrets and machine configuration never belong here.
 set -euo pipefail
 
-REPO=git@github.com:csaroff/dotfiles.git
-KEY="$HOME/.ssh/chezmoi_github_ed25519"
+REPO=
+REPO_SLUG=
+KEY="$HOME/.ssh/id_ed25519"
 
 say() { printf '\n%s\n' "$*"; }
 confirm() {
@@ -11,6 +12,28 @@ confirm() {
   printf '%s [y/N] ' "$*" >/dev/tty
   IFS= read -r answer </dev/tty
   [[ "$answer" == y || "$answer" == Y || "$answer" == yes ]]
+}
+
+set_repo() {
+  local slug=$1
+  slug=${slug#https://github.com/}
+  slug=${slug#git@github.com:}
+  slug=${slug%.git}
+  if [[ ! $slug =~ ^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.-]+$ || ${slug#*/} == . || ${slug#*/} == .. ]]; then
+    say 'Enter a GitHub OWNER/REPO, HTTPS URL, or git@github.com SSH URL.'
+    return 1
+  fi
+  REPO_SLUG=$slug
+  REPO="git@github.com:${slug}.git"
+}
+
+choose_repo() {
+  local answer
+  while true; do
+    printf 'Dotfiles repository (OWNER/REPO): ' >/dev/tty
+    IFS= read -r answer </dev/tty
+    if set_repo "$answer"; then break; fi
+  done
 }
 
 install_tools() {
@@ -73,7 +96,7 @@ github_login() {
     say 'Authorize GitHub in your browser. On a server, open the displayed URL on another device.'
     say 'GitHub CLI authorization is account-wide, not limited to the dotfiles repository.'
     say 'Without an OS keychain, gh may store its token in a plaintext file.'
-    # SSH setup is explicit below so existing private keys are never selected/uploaded.
+    # Handle key reuse explicitly below; only the public key is uploaded.
     gh auth login --hostname github.com --git-protocol ssh --skip-ssh-key --web --scopes admin:public_key
   fi
   local account
@@ -86,12 +109,18 @@ github_login() {
 
 configure_key() {
   install -d -m 700 "$HOME/.ssh"
-  if [[ -e "$KEY" && ! -f "$KEY.pub" ]]; then
-    say "Private key exists without its public key: $KEY. Refusing to overwrite it."
-    return 1
+  if [[ -e "$KEY" && ! -e "$KEY.pub" ]]; then
+    say "Recovering the missing public key from $KEY (private key is unchanged)."
+    local recovered
+    recovered=$(mktemp "$HOME/.ssh/public-key.XXXXXX")
+    if ! ssh-keygen -y -f "$KEY" > "$recovered"; then
+      rm -f "$recovered"
+      return 1
+    fi
+    mv "$recovered" "$KEY.pub"
   fi
   if [[ ! -e "$KEY" ]]; then
-    say 'Creating a dedicated machine key. Choose a passphrase when prompted (recommended).'
+    say 'Creating ~/.ssh/id_ed25519. Choose a passphrase when prompted (recommended).'
     [[ ! -e "$KEY.pub" ]] || { say "Orphan public key exists: $KEY.pub"; return 1; }
     ssh-keygen -t ed25519 -f "$KEY" -C "chezmoi@$(hostname)" </dev/tty
   fi
@@ -119,7 +148,7 @@ configure_dotfiles() {
   if [[ -d "$source/.git" ]]; then
     origin=$(git -C "$source" remote get-url origin)
     case "$origin" in
-      git@github.com:csaroff/dotfiles.git|https://github.com/csaroff/dotfiles.git|https://github.com/csaroff/dotfiles) ;;
+      "$REPO"|"https://github.com/$REPO_SLUG.git"|"https://github.com/$REPO_SLUG") ;;
       *) say "Existing chezmoi source uses unexpected origin: $origin. Stopping without changing it."; return 1 ;;
     esac
     if [[ -n $(git -C "$source" status --porcelain) ]]; then
@@ -142,7 +171,7 @@ configure_dotfiles() {
   fi
   say "Ready: SSH dotfiles checkout at $source"
   say 'Provider/work credentials are not imported by this installer.'
-  say 'Git author identity is chosen by your chezmoi initialization prompts.'
+  say 'Git author identity and other setup prompts depend on your dotfiles repository.'
 }
 
 main() {
@@ -155,8 +184,10 @@ main() {
   say 'Bootstrap: prerequisites → GitHub login → machine SSH key → chezmoi review/apply.'
   install_tools
   github_login
+  choose_repo
   configure_key
   configure_dotfiles
 }
 
-if [[ ${BASH_SOURCE[0]} == "$0" ]]; then main "$@"; fi
+# bash -c (the one-line installer) has no BASH_SOURCE entry.
+if [[ -z ${BASH_SOURCE[0]:-} || ${BASH_SOURCE[0]} == "$0" ]]; then main "$@"; fi

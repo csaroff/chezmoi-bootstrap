@@ -13,7 +13,7 @@ class BootstrapScenarios(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="bootstrap-test-") as home:
             env = dict(os.environ, HOME=home, GH_TOKEN="", GITHUB_TOKEN="")
             result = subprocess.run(
-                ["bash", "-c", 'source "$1"\n' + scenario, "test", str(INSTALLER)],
+                ["bash", "-c", 'source "$1"\nREPO=git@github.com:alice/config.git\nREPO_SLUG=alice/config\n' + scenario, "test", str(INSTALLER)],
                 env=env, text=True, capture_output=True,
             )
             self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
@@ -51,8 +51,51 @@ while IFS= read -r line; do printf '%s\n' "$line"; done < "$HOME/events"
         self.assertIn("auth login --hostname github.com --git-protocol ssh --skip-ssh-key --web", output)
         self.assertIn("ssh-key add", output)
         self.assertIn("core.sshCommand ssh -i", output)
-        self.assertIn("remote set-url origin git@github.com:csaroff/dotfiles.git", output)
+        self.assertIn("remote set-url origin git@github.com:alice/config.git", output)
         self.assertLess(output.index("chezmoi diff"), output.index("chezmoi apply"))
+
+    def test_public_one_liner_invokes_main_without_a_script_filename(self):
+        # The documented curl -> bash -c entry point must run, not require a file
+        # on disk. Substitute only main's body to avoid changing this computer.
+        script = INSTALLER.read_text()
+        start = script.index('main() {')
+        end = script.index('\n}\n', start) + 3
+        script = script[:start] + 'main() { echo BOOTSTRAP_STARTED; }\n' + script[end:]
+        result = subprocess.run(['bash', '-c', script], text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('BOOTSTRAP_STARTED', result.stdout)
+
+    def test_standard_key_is_reused_without_prompt_or_regeneration(self):
+        # Bootstrap should use this machine's existing identity, not introduce
+        # another key or ask the user to make the same choice on every run.
+        self.run_shell(r'''
+[[ $KEY == "$HOME/.ssh/id_ed25519" ]]
+mkdir -p "$HOME/.ssh"
+printf private > "$KEY"
+printf 'ssh-ed25519 TESTKEY\n' > "$KEY.pub"
+confirm() { echo 'Unexpected reuse prompt'; exit 99; }
+ssh-keygen() { echo 'Unexpected key generation'; exit 99; }
+gh() { echo 'ssh-ed25519 TESTKEY'; }
+git() { :; }
+configure_key
+[[ $(<"$KEY") == private ]]
+''')
+
+    def test_repository_is_selected_by_user_not_installer_author(self):
+        # A different user's private repo must work without editing the installer.
+        self.run_shell(r'''
+set_repo alice/config
+[[ $REPO == git@github.com:alice/config.git ]]
+set_repo git@github.com:team/config.git
+[[ $REPO == git@github.com:team/config.git ]]
+set_repo https://github.com/alice/config.git
+[[ $REPO == git@github.com:alice/config.git ]]
+''')
+
+    def test_invalid_repository_is_rejected(self):
+        for value in ('--upload-pack=bad', 'alice/repo/extra', 'https://elsewhere.test/a/b', 'a/..'):
+            with self.subTest(value=value):
+                self.run_shell('set_repo ' + repr(value), expected=1)
 
     def test_missing_linux_tools_install_before_chezmoi(self):
         output = self.run_shell(r'''
@@ -108,9 +151,22 @@ configure_key
         output = self.run_shell(r'''
 mkdir -p "$HOME/.ssh"
 printf 'private-key' > "$KEY"
+ssh-keygen() { return 1; }
 configure_key
 ''', expected=1)
-        self.assertIn("Refusing to overwrite", output)
+        self.assertIn("private key is unchanged", output)
+
+    def test_missing_public_key_is_recovered_from_existing_private_key(self):
+        self.run_shell(r'''
+mkdir -p "$HOME/.ssh"
+printf private > "$KEY"
+ssh-keygen() { [[ $1 == -y ]] || exit 99; echo 'ssh-ed25519 TESTKEY'; }
+gh() { echo 'ssh-ed25519 TESTKEY'; }
+git() { :; }
+configure_key
+[[ $(<"$KEY") == private ]]
+[[ $(<"$KEY.pub") == 'ssh-ed25519 TESTKEY' ]]
+''')
 
     def test_existing_dirty_dotfiles_stop_before_init_or_apply(self):
         output = self.run_shell(r'''

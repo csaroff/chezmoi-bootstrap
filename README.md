@@ -25,21 +25,25 @@ Unsupported package repositories fail rather than silently adding new ones.
 
 1. Approve prerequisite installation if needed (may require sudo).
 2. Authorize GitHub using the displayed browser/device flow and confirm the account.
-3. Choose an SSH key passphrase when prompted. A passphrase protects the key;
-   unattended pushes will require unlocking it in an SSH agent. An empty
-   passphrase trades that protection for unattended use.
-4. Answer your dotfiles repository's Git-identity prompts.
-5. Review `chezmoi diff` and approve applying the configuration and its scripts.
+3. Enter your dotfiles repository as `OWNER/REPO` (GitHub HTTPS/SSH URLs also work).
+4. If `~/.ssh/id_ed25519` exists, it is reused automatically without a reuse prompt.
+   Otherwise choose a passphrase for the new key. Unattended pushes with an
+   encrypted key require unlocking it in an SSH agent.
+5. Answer any initialization prompts supplied by your dotfiles repository.
+6. Review `chezmoi diff` and approve applying the configuration and its scripts.
 
 ## What it changes
 
 - Installs missing Git/GitHub CLI/curl/SSH tools and chezmoi (`~/.local/bin`).
 - Uses GitHub CLI authentication; requests SSH-key management permission when needed.
-- Creates `~/.ssh/chezmoi_github_ed25519`, never copies another machine's key.
-- Registers that key under `chezmoi@HOSTNAME` on GitHub; reruns reuse it.
-- Initializes `git@github.com:csaroff/dotfiles.git` with chezmoi.
+- Reuses `~/.ssh/id_ed25519` or creates it only if missing; never overwrites it.
+  If its public key is missing, derives it from the existing private key
+  (may prompt for the key's passphrase).
+- Registers the public key under `chezmoi@HOSTNAME` on GitHub if not already registered.
+- Initializes your chosen GitHub repository with chezmoi, using an SSH remote.
 - Sets **repository-local** `core.sshCommand` to select this key for future
-  chezmoi pull/push operations. Other repositories and your SSH config are untouched.
+  chezmoi pull/push operations, including when an older bootstrap selected a
+  different key. Other repositories and your SSH config are untouched.
 - Converts an existing clean HTTPS checkout of that same repository to SSH.
 - Refuses dirty or unrelated existing chezmoi source checkouts. Does not pull,
   reset, or overwrite source changes on rerun. Declining apply preserves the checkout.
