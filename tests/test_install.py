@@ -84,6 +84,41 @@ github_login
         self.assertIn('LOGIN_OK', output)
         self.assertIn('SSH_DEFAULT', output)
 
+    def test_review_summarizes_before_user_requests_diff_and_applies(self):
+        # First-run setup can contain thousands of lines. The user should see
+        # scope and executable scripts before choosing whether to inspect details.
+        output = self.run_shell(r'''
+chezmoi() {
+  case "$1" in
+    status) printf ' A .gitconfig\n M .config/agent/AGENTS.md\n R setup-tools.sh\n' ;;
+    diff) echo FULL_DIFF ;;
+    apply) echo APPLIED ;;
+    *) return 99 ;;
+  esac
+}
+choices=0
+read_review_choice() {
+  choices=$((choices+1))
+  case $choices in 1) REVIEW_CHOICE=1;; *) REVIEW_CHOICE=3;; esac
+}
+review_dotfiles
+''')
+        self.assertIn('2 file changes', output)
+        self.assertIn('1 setup scripts', output)
+        self.assertIn('setup-tools.sh', output)
+        self.assertLess(output.index('2 file changes'), output.index('FULL_DIFF'))
+        self.assertLess(output.index('FULL_DIFF'), output.index('APPLIED'))
+
+    def test_review_cancel_does_not_render_diff_or_apply(self):
+        self.run_shell(r'''
+chezmoi() {
+  [[ $1 == status ]] || { echo 'Unexpected diff/apply'; return 99; }
+  printf ' A .gitconfig\n'
+}
+read_review_choice() { REVIEW_CHOICE=4; }
+review_dotfiles
+''')
+
     def test_public_one_liner_invokes_main_without_a_script_filename(self):
         # The documented curl -> bash -c entry point must run, not require a file
         # on disk. Substitute only main's body to avoid changing this computer.
