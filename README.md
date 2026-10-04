@@ -30,7 +30,9 @@ Unsupported package repositories fail rather than silently adding new ones.
    Otherwise choose a passphrase for the new key. Unattended pushes with an
    encrypted key require unlocking it in an SSH agent.
 5. Answer any initialization prompts supplied by your dotfiles repository.
-6. Review `chezmoi diff` and approve applying the configuration and its scripts.
+6. Review a short summary of changed areas, deletion counts, and pending setup scripts.
+   Choose a number and press Enter: view the full diff, view changed paths,
+   apply files and scripts, or cancel. Enter alone cancels; nothing applies automatically.
 
 ## What it changes
 

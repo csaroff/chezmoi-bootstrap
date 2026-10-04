@@ -144,6 +144,52 @@ configure_key() {
   git ls-remote "$REPO" HEAD >/dev/null
 }
 
+read_review_choice() {
+  printf '\nChoose [1-4], then press Enter (default: cancel): ' >/dev/tty
+  IFS= read -r REVIEW_CHOICE </dev/tty
+}
+
+review_dotfiles() {
+  local status
+  # Capture status first so a rendering failure cannot masquerade as no changes.
+  status=$(chezmoi status --color=false)
+  say 'Dotfiles review (no changes applied yet)'
+  printf '%s\n' "$status" | awk '
+    substr($0, 2, 1) ~ /[ADMR]/ {
+      action = substr($0, 2, 1)
+      path = substr($0, 4)
+      if (action == "R") { scripts++; script[scripts] = path; next }
+      files++
+      split(path, parts, "/")
+      area = parts[1]
+      if (area == ".config" && parts[2] != "") area = area "/" parts[2]
+      if (!(area in counts)) areas[++n] = area
+      counts[area]++
+      if (action == "D") deleted++
+    }
+    END {
+      printf "%d file changes (%d deletions); %d setup scripts to run.\n", files, deleted, scripts
+      for (i = 1; i <= n && i <= 12; i++) printf "  %-30s %d\n", areas[i], counts[areas[i]]
+      if (n > 12) printf "  ... %d more areas (choose changed paths below)\n", n - 12
+      if (scripts) {
+        print "\nSetup scripts execute commands, not just file copies:"
+        for (i = 1; i <= scripts && i <= 10; i++) printf "  %s\n", script[i]
+        if (scripts > 10) printf "  ... %d more scripts (choose changed paths below)\n", scripts - 10
+      }
+    }'
+  while true; do
+    printf '\n  1) View full diff\n  2) View all changed paths\n  3) Apply dotfiles AND setup scripts\n  4) Cancel (keep checkout; apply nothing)\n'
+    read_review_choice
+    case "$REVIEW_CHOICE" in
+      1) chezmoi diff ;;
+      2) printf '%s\n' "$status" ;;
+      3) chezmoi apply; return ;;
+      4|'') say 'Initialized without applying. Later: chezmoi diff, then chezmoi apply.'; return ;;
+      *) say 'Please choose 1, 2, 3, or 4.' ;;
+    esac
+  done
+}
+
 configure_dotfiles() {
   local source origin
   source=$(chezmoi source-path)
@@ -164,13 +210,7 @@ configure_dotfiles() {
   git -C "$source" config core.sshCommand "$DOTFILES_SSH"
   git -C "$source" remote set-url origin "$REPO"
   unset GIT_SSH_COMMAND
-  say 'Review configuration changes below. Apply also executes scripts in your dotfiles repository.'
-  chezmoi diff
-  if confirm 'Apply these dotfiles and their setup scripts?'; then
-    chezmoi apply
-  else
-    say 'Initialized without applying. Later: chezmoi diff, then chezmoi apply.'
-  fi
+  review_dotfiles
   say "Ready: SSH dotfiles checkout at $source"
   say 'Provider/work credentials are not imported by this installer.'
   say 'Git author identity and other setup prompts depend on your dotfiles repository.'

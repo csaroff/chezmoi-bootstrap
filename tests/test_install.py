@@ -41,6 +41,10 @@ chezmoi() {
   printf 'chezmoi %s\n' "$*" >> "$HOME/events"
   [[ $1 != source-path ]] || echo "$source_dir"
 }
+read_review_choice() {
+  if [[ -e "$HOME/viewed" ]]; then REVIEW_CHOICE=3;
+  else touch "$HOME/viewed"; REVIEW_CHOICE=1; fi
+}
 github_login
 configure_key
 configure_dotfiles
@@ -118,6 +122,26 @@ chezmoi() {
 read_review_choice() { REVIEW_CHOICE=4; }
 review_dotfiles
 ''')
+
+    def test_review_default_is_cancel_and_local_only_changes_are_not_pending(self):
+        output = self.run_shell(r'''
+chezmoi() {
+  [[ $1 == status ]] || return 99
+  printf 'M  .already-correct\n D .obsolete\n'
+}
+read_review_choice() { REVIEW_CHOICE=; }
+review_dotfiles
+''')
+        self.assertIn('1 file changes (1 deletions)', output)
+        self.assertNotIn('.already-correct', output)
+        self.assertIn('Initialized without applying', output)
+
+    def test_failed_status_cannot_lead_to_apply(self):
+        self.run_shell(r'''
+chezmoi() { [[ $1 == status ]] || exit 99; return 42; }
+read_review_choice() { exit 99; }
+review_dotfiles
+''', expected=42)
 
     def test_public_one_liner_invokes_main_without_a_script_filename(self):
         # The documented curl -> bash -c entry point must run, not require a file
@@ -259,7 +283,7 @@ configure_dotfiles
     def test_declining_apply_keeps_checkout_without_running_scripts(self):
         output = self.run_shell(r'''
 DOTFILES_SSH='ssh -i test-key'
-confirm() { return 1; }
+read_review_choice() { REVIEW_CHOICE=4; }
 git() { :; }
 chezmoi() {
   case "$1" in
